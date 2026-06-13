@@ -49,7 +49,7 @@ def guardar(subvenciones):
     print(f"Guardadas {len(result.data)} convocatorias.")
 
 if __name__ == "__main__":
-    hoy = date.today().strftime("%Y%m%d")
+    hoy = "20260612"
     xml   = descargar_boe(hoy)
     items = extraer_subvenciones(xml, hoy)
     print(f"Encontradas {len(items)} convocatorias relevantes.")
