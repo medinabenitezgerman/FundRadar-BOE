@@ -9,6 +9,11 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 SCRAPER_KEY  = os.environ["SCRAPER_API_KEY"]
 
+DIAS_JUNIO = [
+    "20260602", "20260603", "20260604", "20260605", "20260606",
+    "20260609", "20260610", "20260611", "20260612",
+]
+
 def descargar_boe(fecha):
     url_boe = f"https://www.boe.es/datosabiertos/api/boe/sumario/{fecha}"
     url     = f"http://api.scraperapi.com?api_key={SCRAPER_KEY}&url={url_boe}"
@@ -54,8 +59,8 @@ def guardar(subvenciones):
     print(f"Guardadas {len(result.data)} convocatorias.")
 
 if __name__ == "__main__":
-    hoy = "20260609"
-    xml   = descargar_boe(hoy)
-    items = extraer_subvenciones(xml, hoy)
-    print(f"Encontradas {len(items)} convocatorias relevantes.")
-    guardar(items)
+    for hoy in DIAS_JUNIO:
+        xml   = descargar_boe(hoy)
+        items = extraer_subvenciones(xml, hoy)
+        print(f"{hoy}: {len(items)} convocatorias relevantes.")
+        guardar(items)
