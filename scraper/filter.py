@@ -3,10 +3,10 @@ SECCIONES_VALIDAS = ["5B"]
 KEYWORDS_POSITIVAS = [
     "subvención", "subvenciones",
     "ayuda", "ayudas",
-    "beca", "becas",
-    "convocatoria",
-    "concesión",
-    "financiación",
+    "convocatoria de subvenciones",
+    "convocatoria de ayudas",
+    "concesión de subvenciones",
+    "concesión de ayudas",
 ]
 
 KEYWORDS_EXCLUIR = [
@@ -23,16 +23,26 @@ KEYWORDS_EXCLUIR = [
     "sectores productivos",
     "next generation",
     "plan de recuperación",
-    "becas de formación",
     "máster universitario",
     "investigadores",
-    "estancias de investigación",
     "contratos predoctorales",
     "contratos postdoctorales",
     "erasmus",
-    "startups",
-    "pymes",
     "autónomos",
+    "concesión administrativa",
+    "aprovechamiento",
+    "dominio público",
+    "canon",
+    "tarifa",
+    "obra",
+    "licitación",
+    "contrato",
+    "concurso de acceso",
+    "proveer",
+    "plaza",
+    "puesto de trabajo",
+    "oposicion",
+    "oposición",
 ]
 
 def es_relevante(titulo: str, materia: str, seccion: str = "") -> bool:
