@@ -8,6 +8,10 @@ from supabase import create_client
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
+BASE_URL = "https://www.juntadeandalucia.es"
+
+SECCIONES_VALIDAS = ["s51", "s54", "s57"]  # Disposiciones generales, Otras disposiciones, Otros anuncios
+
 KEYWORDS_POSITIVAS = [
     "subvención", "subvenciones", "ayuda", "ayudas",
     "convocatoria de subvenciones", "convocatoria de ayudas",
@@ -16,99 +20,96 @@ KEYWORDS_POSITIVAS = [
 
 KEYWORDS_EXCLUIR = [
     "modificación", "nombramiento", "cese", "oposición",
-    "concurso", "licitación", "contrato", "adjudicación",
-    "plaza", "puesto", "funcionario", "personal",
+    "concurso de", "licitación", "contrato", "adjudicación",
+    "plaza", "puesto de trabajo", "funcionario", "personal",
     "becas de formación", "máster", "investigador",
     "autónomo", "personas físicas", "ciudadanos",
+    "certamen", "premio", "galardón",
 ]
 
-SECCIONES_VALIDAS = ["1", "3", "5.2"]
-
-def numero_boja_hoy():
-    hoy = date.today()
-    url = f"https://www.juntadeandalucia.es/eboja/{hoy.year}"
-    r = requests.get(url, timeout=30)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, 'html.parser')
-    enlaces = soup.find_all('a', href=re.compile(r'/eboja/\d{4}/\d+/index\.html'))
-    if not enlaces:
+def get_numero_boja(anyo):
+    """Obtiene el número del último BOJA publicado para un año dado."""
+    url = f"{BASE_URL}/eboja/{anyo}.html"
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, 'html.parser')
+        enlaces = soup.find_all('a', href=re.compile(rf'/eboja/{anyo}/\d+/index\.html'))
+        if not enlaces:
+            return None
+        ultimo = enlaces[-1]['href']
+        m = re.search(rf'/eboja/{anyo}/(\d+)/index\.html', ultimo)
+        return int(m.group(1)) if m else None
+    except:
         return None
-    ultimo = enlaces[-1]['href']
-    m = re.search(r'/eboja/\d{4}/(\d+)/index\.html', ultimo)
-    return int(m.group(1)) if m else None
 
-def obtener_numero_boja(fecha_str):
-    anyo = fecha_str[:4]
-    url = f"https://www.juntadeandalucia.es/eboja/{anyo}"
-    r = requests.get(url, timeout=30)
-    r.raise_for_status()
+def scrape_seccion(anyo, numero, seccion_href):
+    """Scrape una sección concreta del BOJA."""
+    url = f"{BASE_URL}/eboja/{anyo}/{numero}/{seccion_href}"
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+    except:
+        return []
+
     soup = BeautifulSoup(r.text, 'html.parser')
-    enlaces = soup.find_all('a', href=re.compile(r'/eboja/\d{4}/\d+/index\.html'))
-    for e in reversed(enlaces):
-        if fecha_str.replace('-', '/')[5:] in e.text or fecha_str in e.get('href', ''):
-            m = re.search(r'/eboja/\d{4}/(\d+)/index\.html', e['href'])
-            if m:
-                return int(m.group(1))
-    return None
-
-def scrape_boja(numero, anyo):
-    url_index = f"https://www.juntadeandalucia.es/eboja/{anyo}/{numero}/index.html"
-    print(f"Descargando BOJA {numero} de {anyo}...")
-    r = requests.get(url_index, timeout=30)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, 'html.parser')
-
+    items = soup.find_all('div', class_='item')
     convocatorias = []
-    seccion_actual = None
 
-    for elem in soup.find_all(['h2', 'h3', 'p', 'li']):
-        texto = elem.get_text(strip=True)
-
-        if elem.name in ['h2', 'h3']:
-            for s in SECCIONES_VALIDAS:
-                if texto.startswith(s + '.') or texto.startswith(s + ' '):
-                    seccion_actual = s
-                    break
-            if texto.startswith('2.') or texto.startswith('4.') or texto.startswith('5.1'):
-                seccion_actual = None
+    for item in items:
+        p = item.find('p')
+        if not p:
             continue
+        titulo = p.get_text(strip=True)
+        titulo_lower = titulo.lower()
 
-        if not seccion_actual:
-            continue
-
-        titulo_lower = texto.lower()
         if not any(k in titulo_lower for k in KEYWORDS_POSITIVAS):
             continue
         if any(k in titulo_lower for k in KEYWORDS_EXCLUIR):
             continue
 
-        enlace = elem.find('a')
+        enlace_html = item.find('a', class_='item_html')
         url_html = None
-        if enlace and enlace.get('href'):
-            href = enlace['href']
-            if href.startswith('/boja/'):
-                url_html = f"https://www.juntadeandalucia.es{href}"
-            elif href.startswith('http'):
-                url_html = href
-
         num_disp = None
-        if url_html:
-            m = re.search(r'/boja/\d{4}/\d+/(\d+)', url_html)
-            if m:
-                num_disp = m.group(1)
+        if enlace_html:
+            href = enlace_html.get('href', '')
+            if href.startswith('/boja/'):
+                url_html = f"{BASE_URL}{href}"
+                m = re.search(r'/boja/\d{4}/\d+/(\d+)', href)
+                if m:
+                    num_disp = m.group(1)
+
+        enlace_pdf = item.find('a', class_='item_pdf_grupo')
+        url_pdf = None
+        if enlace_pdf:
+            href = enlace_pdf.get('href', '')
+            if href.startswith('http'):
+                url_pdf = href
+            elif href:
+                url_pdf = f"{BASE_URL}/eboja/{anyo}/{numero}/{href}"
 
         id_boja = f"BOJA-{anyo}-{numero}-{num_disp or len(convocatorias)+1}"
+        fecha_str = f"{anyo}-{str(numero).zfill(3)}-01"
 
         convocatorias.append({
             "id_boe":   id_boja,
-            "titulo":   texto[:500],
-            "fecha":    f"{anyo}-{str(numero).zfill(3)}",
-            "url_pdf":  url_html,
-            "materia":  seccion_actual,
+            "titulo":   titulo[:500],
+            "fecha":    f"{anyo}-01-01",
+            "url_pdf":  url_html or url_pdf,
+            "materia":  seccion_href,
             "fuente":   "BOJA",
         })
 
     return convocatorias
+
+def scrape_boja(numero, anyo):
+    print(f"Scrapeando BOJA {numero} de {anyo}...")
+    todas = []
+    for seccion in SECCIONES_VALIDAS:
+        items = scrape_seccion(anyo, numero, seccion)
+        todas.extend(items)
+        print(f"  Sección {seccion}: {len(items)} convocatorias")
+    return todas
 
 def guardar(items):
     if not items:
@@ -122,9 +123,19 @@ def guardar(items):
     )
     print(f"Guardadas {len(result.data)} convocatorias del BOJA.")
 
+def scrape_historico_boja(fechas):
+    """Scrape múltiples boletines por número."""
+    for anyo, numero in fechas:
+        try:
+            items = scrape_boja(numero, anyo)
+            print(f"BOJA {numero}/{anyo}: {len(items)} convocatorias relevantes.")
+            guardar(items)
+        except Exception as e:
+            print(f"Error en BOJA {numero}/{anyo}: {e}")
+
 if __name__ == "__main__":
     anyo = date.today().year
-    numero = numero_boja_hoy()
+    numero = get_numero_boja(anyo)
     if not numero:
         print("No se encontró el número del BOJA de hoy.")
     else:
