@@ -1,11 +1,18 @@
 import os
 import re
 import requests
+from datetime import date, timedelta
 from supabase import create_client
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 SCRAPER_KEY  = os.environ["SCRAPER_API_KEY"]
+
+MESES = {
+    'enero':'01','febrero':'02','marzo':'03','abril':'04',
+    'mayo':'05','junio':'06','julio':'07','agosto':'08',
+    'septiembre':'09','octubre':'10','noviembre':'11','diciembre':'12'
+}
 
 ODS_KEYWORDS = {
     "1":  ["pobreza", "exclusión social", "vulnerable"],
@@ -80,32 +87,104 @@ def detectar_ambito(texto):
             return ambito
     return "General"
 
-def extraer_fecha_cierre(html):
-    patrones = [
-        r'plazo[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'hasta el\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'fecha l[íi]mite[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'presentaci[oó]n[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'(\d{1,2}/\d{1,2}/\d{4})',
+def fecha_a_iso(texto):
+    texto = texto.strip().lower()
+    if '/' in texto:
+        partes = texto.split('/')
+        if len(partes) == 3:
+            return f"{partes[2].strip()}-{partes[1].strip().zfill(2)}-{partes[0].strip().zfill(2)}"
+    partes = texto.split()
+    if len(partes) >= 5 and partes[1] == 'de' and partes[3] == 'de':
+        mes = MESES.get(partes[2])
+        if mes:
+            return f"{partes[4]}-{mes}-{partes[0].zfill(2)}"
+    return None
+
+def calcular_fecha_fin(html_texto, fecha_publicacion_str):
+    patrones_dias_habiles = [
+        r'(\d+)\s+d[íi]as?\s+h[áa]biles?\s+(?:a partir|contados?|desde)',
+        r'plazo\s+de\s+(\d+)\s+d[íi]as?\s+h[áa]biles?',
     ]
-    MESES = {'enero':'01','febrero':'02','marzo':'03','abril':'04','mayo':'05','junio':'06',
-             'julio':'07','agosto':'08','septiembre':'09','octubre':'10','noviembre':'11','diciembre':'12'}
+    for p in patrones_dias_habiles:
+        m = re.search(p, html_texto.lower())
+        if m:
+            dias = int(m.group(1))
+            try:
+                from datetime import datetime
+                pub = datetime.strptime(fecha_publicacion_str, "%Y-%m-%d")
+                dias_habiles = 0
+                actual = pub + timedelta(days=1)
+                while dias_habiles < dias:
+                    if actual.weekday() < 5:
+                        dias_habiles += 1
+                    actual += timedelta(days=1)
+                return actual.strftime("%Y-%m-%d")
+            except:
+                pass
+    return None
+
+def extraer_fechas(html, fecha_publicacion):
     texto = html.lower()
-    for p in patrones:
+    fecha_inicio = None
+    fecha_fin_solicitud = None
+    fecha_fin_ejecucion = None
+    bdns_id = None
+
+    m = re.search(r'bdns\s*\(?identif\.?\)?\s*:?\s*(\d+)', texto)
+    if m:
+        bdns_id = m.group(1)
+
+    patrones_inicio = [
+        r'plazo\s+(?:de\s+presentaci[oó]n\s+)?(?:de\s+solicitudes?\s+)?(?:se\s+)?(?:inicia|abre|comienza)[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+        r'desde\s+el\s+d[íi]a\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+        r'a\s+partir\s+del\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+        r'inicio[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+    ]
+    for p in patrones_inicio:
         m = re.search(p, texto)
         if m:
-            fecha_str = m.group(1)
-            if '/' in fecha_str:
-                partes = fecha_str.split('/')
-                if len(partes) == 3:
-                    return f"{partes[2]}-{partes[1].zfill(2)}-{partes[0].zfill(2)}"
+            fecha_inicio = fecha_a_iso(m.group(1))
+            if fecha_inicio:
+                break
+
+    if not fecha_inicio:
+        fecha_inicio = fecha_publicacion
+
+    patrones_fin = [
+        r'hasta\s+el\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+        r'fecha\s+l[íi]mite[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+        r'plazo[^.]*?finaliza[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+        r'(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})[^.]*?(?:plazo|solicitud)',
+        r'(\d{1,2}/\d{1,2}/\d{4})',
+    ]
+    for p in patrones_fin:
+        m = re.search(p, texto)
+        if m:
+            fecha_fin_solicitud = fecha_a_iso(m.group(1))
+            if fecha_fin_solicitud:
+                break
+
+    if not fecha_fin_solicitud:
+        fecha_fin_solicitud = calcular_fecha_fin(html, fecha_publicacion)
+
+    patrones_ejecucion = [
+        r'(?:plazo\s+de\s+)?ejecuci[oó]n[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+        r'hasta\s+el\s+31\s+de\s+diciembre\s+de\s+(\d{4})',
+        r'31\s+de\s+diciembre\s+de\s+(\d{4})',
+        r'justificaci[oó]n[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+    ]
+    for p in patrones_ejecucion:
+        m = re.search(p, texto)
+        if m:
+            g = m.group(1)
+            if len(g) == 4:
+                fecha_fin_ejecucion = f"{g}-12-31"
             else:
-                partes = fecha_str.split()
-                if len(partes) >= 5:
-                    mes = MESES.get(partes[2], None)
-                    if mes:
-                        return f"{partes[4]}-{mes}-{partes[0].zfill(2)}"
-    return None
+                fecha_fin_ejecucion = fecha_a_iso(g)
+            if fecha_fin_ejecucion:
+                break
+
+    return bdns_id, fecha_inicio, fecha_fin_solicitud, fecha_fin_ejecucion
 
 def extraer_importe(html):
     patrones = [
@@ -139,7 +218,7 @@ def main():
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
     registros = (
         client.table("subvenciones")
-        .select("id, id_boe, titulo, materia, organismo")
+        .select("id, id_boe, titulo, materia, fecha")
         .execute()
     )
 
@@ -149,23 +228,34 @@ def main():
         try:
             texto_base = f"{r['titulo']} {r['materia'] or ''}".lower()
             datos = {
-                "organismo":    r.get("organismo") or r.get("materia") or "Administración General del Estado",
-                "ambito":       detectar_ambito(texto_base),
-                "ccaa":         detectar_ccaa(texto_base),
-                "ods":          detectar_ods(texto_base),
-                "descripcion":  r["titulo"][:200],
-                "importe":      "Ver PDF para más información",
-                "fecha_cierre": None,
+                "organismo":           r.get("materia") or "Administración General del Estado",
+                "ambito":              detectar_ambito(texto_base),
+                "ccaa":                detectar_ccaa(texto_base),
+                "ods":                 detectar_ods(texto_base),
+                "descripcion":         r["titulo"][:200],
+                "importe":             "Ver PDF para más información",
+                "fecha_inicio":        r.get("fecha"),
+                "fecha_fin_solicitud": None,
+                "fecha_fin_ejecucion": None,
+                "bdns_id":             None,
             }
 
             try:
                 html = descargar_html(r["id_boe"])
-                fecha = extraer_fecha_cierre(html)
+                bdns_id, f_inicio, f_fin, f_ejec = extraer_fechas(html, r.get("fecha") or "")
                 importe = extraer_importe(html)
-                if fecha:
-                    datos["fecha_cierre"] = fecha
+
+                if bdns_id:
+                    datos["bdns_id"] = bdns_id
+                if f_inicio:
+                    datos["fecha_inicio"] = f_inicio
+                if f_fin:
+                    datos["fecha_fin_solicitud"] = f_fin
+                if f_ejec:
+                    datos["fecha_fin_ejecucion"] = f_ejec
                 datos["importe"] = importe
-                print(f"✓ {r['id_boe']} — fecha: {fecha or 'no encontrada'} — importe: {importe}")
+
+                print(f"✓ {r['id_boe']} — inicio: {f_inicio} fin: {f_fin} ejec: {f_ejec}")
             except Exception as e:
                 print(f"  HTML no disponible para {r['id_boe']}: {e}")
 
