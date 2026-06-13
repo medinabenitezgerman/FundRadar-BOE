@@ -7,9 +7,11 @@ from filter import es_relevante
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+SCRAPER_KEY  = os.environ["SCRAPER_API_KEY"]
 
 def descargar_boe(fecha):
-    url = f"https://www.boe.es/datosabiertos/api/boe/sumario/{fecha}"
+    url_boe = f"https://www.boe.es/datosabiertos/api/boe/sumario/{fecha}"
+    url     = f"http://api.scraperapi.com?api_key={SCRAPER_KEY}&url={url_boe}"
     print(f"Descargando BOE del {fecha}...")
     r = requests.get(url, timeout=60)
     r.raise_for_status()
@@ -20,9 +22,9 @@ def extraer_subvenciones(xml_bytes, fecha):
     root = etree.fromstring(xml_bytes, parser=parser)
     encontradas = []
     for item in root.findall(".//item"):
-        titulo  = item.findtext("titulo",        default="")
-        id_boe  = item.findtext("identificador", default="")
-        url_pdf = item.findtext("url_pdf",       default="")
+        titulo   = item.findtext("titulo",        default="")
+        id_boe   = item.findtext("identificador", default="")
+        url_pdf  = item.findtext("url_pdf",       default="")
         epigrafe = item.getparent()
         materia  = epigrafe.get("nombre", "") if epigrafe is not None else ""
         if not id_boe:
