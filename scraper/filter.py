@@ -1,17 +1,25 @@
 KEYWORDS = [
-    "subvención", "convocatoria", "ayuda", "beca",
-    "sin ánimo de lucro", "ong", "asociación", "fundación",
-    "tercer sector", "acción social", "cooperación",
-    "voluntariado", "inclusión social", "discapacidad",
-    "mayores", "infancia", "juventud", "igualdad",
+    "subvención", "subvenciones", "convocatoria", "ayuda", "ayudas",
+    "beca", "becas", "grant", "financiación", "financiamiento",
+    "sin ánimo de lucro", "ong", "asociación", "asociaciones",
+    "fundación", "fundaciones", "tercer sector", "entidad sin ánimo",
+    "acción social", "cooperación", "voluntariado", "inclusión",
+    "discapacidad", "mayores", "infancia", "juventud", "igualdad",
     "violencia de género", "inserción laboral", "empleo social",
     "servicios sociales", "dependencia", "refugiados", "migrantes",
+    "cultura", "deporte", "medioambiente", "medio ambiente",
+    "educación", "formación", "investigación", "innovación social",
+    "desarrollo rural", "comunidad", "vecinal", "barrio",
+    "sanitario", "salud", "mental", "adicciones", "pobreza",
+    "exclusión social", "vulnerab", "colectivo", "minorías",
 ]
 
 MATERIAS = [
-    "asistencia social", "cooperación internacional",
-    "educación", "empleo", "igualdad", "juventud",
-    "sanidad", "servicios sociales", "derechos sociales",
+    "subvenciones", "ayudas", "asistencia social",
+    "cooperación internacional", "educación", "empleo",
+    "igualdad", "juventud", "sanidad", "servicios sociales",
+    "derechos sociales", "cultura", "deporte", "medio ambiente",
+    "desarrollo rural", "vivienda", "investigación",
 ]
 
 def es_relevante(titulo: str, materia: str) -> bool:
