@@ -5,9 +5,9 @@ from lxml import etree
 from supabase import create_client
 from filter import es_relevante
 
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_KEY"]
-SCRAPER_KEY  = os.environ["SCRAPER_API_KEY"]
+SUPABASE_URL     = os.environ["SUPABASE_URL"]
+SUPABASE_KEY     = os.environ["SUPABASE_SERVICE_KEY"]
+SCRAPER_KEY      = os.environ["SCRAPER_API_KEY"]
 
 def descargar_boe(fecha):
     url_boe = f"https://www.boe.es/datosabiertos/api/boe/sumario/{fecha}"
