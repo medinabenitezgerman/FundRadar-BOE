@@ -10,7 +10,7 @@ SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
 BASE_URL = "https://www.juntadeandalucia.es"
 
-SECCIONES_VALIDAS = ["s51", "s54", "s57"]
+SECCIONES_VALIDAS = ["s51", "s54"]
 
 KEYWORDS_POSITIVAS = [
     "subvención", "subvenciones", "ayuda", "ayudas",
@@ -76,7 +76,7 @@ def scrape_seccion(anyo, numero, seccion_href):
         convocatorias.append({
             "id_boe":  id_boja,
             "titulo":  titulo[:500],
-            "fecha":   f"{anyo}-06-{str(numero-109).zfill(2)}" if numero >= 110 else f"{anyo}-01-01",
+            "fecha":   f"{anyo}-06-12",
             "url_pdf": url_html or url_pdf,
             "materia": seccion_href,
             "fuente":  "BOJA",
@@ -84,11 +84,13 @@ def scrape_seccion(anyo, numero, seccion_href):
 
     return convocatorias
 
-def scrape_boja(numero, anyo):
+def scrape_boja(numero, anyo, fecha):
     print(f"Scrapeando BOJA {numero} de {anyo}...")
     todas = []
     for seccion in SECCIONES_VALIDAS:
         items = scrape_seccion(anyo, numero, seccion)
+        for item in items:
+            item["fecha"] = fecha
         todas.extend(items)
         print(f"  Sección {seccion}: {len(items)} convocatorias")
     return todas
@@ -106,6 +108,6 @@ def guardar(items):
     print(f"Guardadas {len(result.data)} convocatorias del BOJA.")
 
 if __name__ == "__main__":
-    items = scrape_boja(112, 2026)
+    items = scrape_boja(112, 2026, "2026-06-12")
     print(f"Encontradas {len(items)} convocatorias relevantes en BOJA 112.")
     guardar(items)
