@@ -1,7 +1,7 @@
 import os
 import re
 import requests
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from supabase import create_client
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
@@ -100,77 +100,65 @@ def fecha_a_iso(texto):
             return f"{partes[4]}-{mes}-{partes[0].zfill(2)}"
     return None
 
-def calcular_fecha_fin(html_texto, fecha_publicacion_str):
-    patrones_dias_habiles = [
-        r'(\d+)\s+d[íi]as?\s+h[áa]biles?\s+(?:a partir|contados?|desde)',
-        r'plazo\s+de\s+(\d+)\s+d[íi]as?\s+h[áa]biles?',
-    ]
-    for p in patrones_dias_habiles:
-        m = re.search(p, html_texto.lower())
-        if m:
-            dias = int(m.group(1))
-            try:
-                from datetime import datetime
-                pub = datetime.strptime(fecha_publicacion_str, "%Y-%m-%d")
-                dias_habiles = 0
-                actual = pub + timedelta(days=1)
-                while dias_habiles < dias:
-                    if actual.weekday() < 5:
-                        dias_habiles += 1
-                    actual += timedelta(days=1)
-                return actual.strftime("%Y-%m-%d")
-            except:
-                pass
-    return None
+def fecha_valida(fecha_iso, fecha_publicacion):
+    if not fecha_iso or not fecha_publicacion:
+        return False
+    try:
+        f = datetime.strptime(fecha_iso, "%Y-%m-%d")
+        p = datetime.strptime(fecha_publicacion, "%Y-%m-%d")
+        return f >= p
+    except:
+        return False
+
+def calcular_dias_habiles(fecha_pub, dias):
+    try:
+        actual = datetime.strptime(fecha_pub, "%Y-%m-%d") + timedelta(days=1)
+        habiles = 0
+        while habiles < dias:
+            if actual.weekday() < 5:
+                habiles += 1
+            actual += timedelta(days=1)
+        return actual.strftime("%Y-%m-%d")
+    except:
+        return None
 
 def extraer_fechas(html, fecha_publicacion):
     texto = html.lower()
-    fecha_inicio = None
+    bdns_id = None
+    fecha_inicio = fecha_publicacion
     fecha_fin_solicitud = None
     fecha_fin_ejecucion = None
-    bdns_id = None
 
     m = re.search(r'bdns\s*\(?identif\.?\)?\s*:?\s*(\d+)', texto)
     if m:
         bdns_id = m.group(1)
 
-    patrones_inicio = [
-        r'plazo\s+(?:de\s+presentaci[oó]n\s+)?(?:de\s+solicitudes?\s+)?(?:se\s+)?(?:inicia|abre|comienza)[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'desde\s+el\s+d[íi]a\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'a\s+partir\s+del\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'inicio[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-    ]
-    for p in patrones_inicio:
-        m = re.search(p, texto)
-        if m:
-            fecha_inicio = fecha_a_iso(m.group(1))
-            if fecha_inicio:
-                break
-
-    if not fecha_inicio:
-        fecha_inicio = fecha_publicacion
-
     patrones_fin = [
-        r'hasta\s+el\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'fecha\s+l[íi]mite[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+        r'hasta el\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+        r'fecha l[íi]mite[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
         r'plazo[^.]*?finaliza[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})[^.]*?(?:plazo|solicitud)',
-        r'(\d{1,2}/\d{1,2}/\d{4})',
+        r'terminar[áa]\s+el\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
     ]
     for p in patrones_fin:
         m = re.search(p, texto)
         if m:
-            fecha_fin_solicitud = fecha_a_iso(m.group(1))
-            if fecha_fin_solicitud:
+            f = fecha_a_iso(m.group(1))
+            if fecha_valida(f, fecha_publicacion):
+                fecha_fin_solicitud = f
                 break
 
     if not fecha_fin_solicitud:
-        fecha_fin_solicitud = calcular_fecha_fin(html, fecha_publicacion)
+        m = re.search(r'(\d+)\s+d[íi]as?\s+h[áa]biles?\s+(?:a partir|contados?|desde)', texto)
+        if not m:
+            m = re.search(r'plazo\s+de\s+(\d+)\s+d[íi]as?\s+h[áa]biles?', texto)
+        if m:
+            dias = int(m.group(1))
+            fecha_fin_solicitud = calcular_dias_habiles(fecha_publicacion, dias)
 
     patrones_ejecucion = [
-        r'(?:plazo\s+de\s+)?ejecuci[oó]n[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'hasta\s+el\s+31\s+de\s+diciembre\s+de\s+(\d{4})',
+        r'ejecuci[oó]n[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
         r'31\s+de\s+diciembre\s+de\s+(\d{4})',
+        r'hasta el\s+31\s+de\s+diciembre\s+de\s+(\d{4})',
         r'justificaci[oó]n[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
     ]
     for p in patrones_ejecucion:
@@ -178,10 +166,11 @@ def extraer_fechas(html, fecha_publicacion):
         if m:
             g = m.group(1)
             if len(g) == 4:
-                fecha_fin_ejecucion = f"{g}-12-31"
+                f = f"{g}-12-31"
             else:
-                fecha_fin_ejecucion = fecha_a_iso(g)
-            if fecha_fin_ejecucion:
+                f = fecha_a_iso(g)
+            if fecha_valida(f, fecha_publicacion):
+                fecha_fin_ejecucion = f
                 break
 
     return bdns_id, fecha_inicio, fecha_fin_solicitud, fecha_fin_ejecucion
@@ -194,39 +183,34 @@ def extraer_importe(html):
         r'presupuesto[^.]*?([\d.,]+)\s*euros',
         r'([\d.,]+)\s*euros',
     ]
-    texto = html.lower()
     for p in patrones:
-        m = re.search(p, texto)
+        m = re.search(p, html.lower())
         if m:
-            importe = m.group(1).replace('.', '').replace(',', '.')
             try:
-                valor = float(importe)
+                valor = float(m.group(1).replace('.', '').replace(',', '.'))
                 if valor > 100:
-                    return f"Dotación total: {valor:,.0f} € (ver PDF para máximo por entidad)".replace(',', '.')
+                    return f"Dotación total: {valor:,.0f} €".replace(',', '.')
             except:
                 pass
     return "Ver PDF para más información"
 
 def descargar_html(id_boe):
-    url_html = f"https://www.boe.es/diario_boe/txt.php?id={id_boe}"
-    proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_KEY}&url={requests.utils.quote(url_html, safe='')}"
-    r = requests.get(proxy_url, timeout=30)
+    url = f"https://www.boe.es/diario_boe/txt.php?id={id_boe}"
+    proxy = f"http://api.scraperapi.com?api_key={SCRAPER_KEY}&url={requests.utils.quote(url, safe='')}"
+    r = requests.get(proxy, timeout=30)
     r.raise_for_status()
     return r.text
 
 def main():
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    registros = (
-        client.table("subvenciones")
-        .select("id, id_boe, titulo, materia, fecha")
-        .execute()
-    )
-
+    registros = client.table("subvenciones").select("id, id_boe, titulo, materia, fecha").execute()
     print(f"Enriqueciendo {len(registros.data)} registros...")
 
     for r in registros.data:
         try:
             texto_base = f"{r['titulo']} {r['materia'] or ''}".lower()
+            fecha_pub = r.get("fecha") or ""
+
             datos = {
                 "organismo":           r.get("materia") or "Administración General del Estado",
                 "ambito":              detectar_ambito(texto_base),
@@ -234,7 +218,7 @@ def main():
                 "ods":                 detectar_ods(texto_base),
                 "descripcion":         r["titulo"][:200],
                 "importe":             "Ver PDF para más información",
-                "fecha_inicio":        r.get("fecha"),
+                "fecha_inicio":        fecha_pub,
                 "fecha_fin_solicitud": None,
                 "fecha_fin_ejecucion": None,
                 "bdns_id":             None,
@@ -242,27 +226,23 @@ def main():
 
             try:
                 html = descargar_html(r["id_boe"])
-                bdns_id, f_inicio, f_fin, f_ejec = extraer_fechas(html, r.get("fecha") or "")
+                bdns, f_ini, f_fin, f_ejec = extraer_fechas(html, fecha_pub)
                 importe = extraer_importe(html)
-
-                if bdns_id:
-                    datos["bdns_id"] = bdns_id
-                if f_inicio:
-                    datos["fecha_inicio"] = f_inicio
-                if f_fin:
-                    datos["fecha_fin_solicitud"] = f_fin
-                if f_ejec:
-                    datos["fecha_fin_ejecucion"] = f_ejec
-                datos["importe"] = importe
-
-                print(f"✓ {r['id_boe']} — inicio: {f_inicio} fin: {f_fin} ejec: {f_ejec}")
+                datos.update({
+                    "bdns_id":             bdns,
+                    "fecha_inicio":        f_ini or fecha_pub,
+                    "fecha_fin_solicitud": f_fin,
+                    "fecha_fin_ejecucion": f_ejec,
+                    "importe":             importe,
+                })
+                print(f"✓ {r['id_boe']} — fin: {f_fin} ejec: {f_ejec}")
             except Exception as e:
-                print(f"  HTML no disponible para {r['id_boe']}: {e}")
+                print(f"  Sin HTML para {r['id_boe']}: {e}")
 
             client.table("subvenciones").update(datos).eq("id", r["id"]).execute()
 
         except Exception as e:
-            print(f"✗ Error en {r.get('id_boe')}: {e}")
+            print(f"✗ Error {r.get('id_boe')}: {e}")
 
 if __name__ == "__main__":
     main()
