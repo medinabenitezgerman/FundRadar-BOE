@@ -1,4 +1,4 @@
-import os
+ import os
 import re
 import requests
 from datetime import date, timedelta, datetime
@@ -192,24 +192,37 @@ def extraer_importe(html):
                     return f"Dotación total: {valor:,.0f} €".replace(',', '.')
             except:
                 pass
-    return "Ver PDF para más información"
+    return "Ver convocatoria para más información"
 
-def descargar_html(id_boe):
-    url = f"https://www.boe.es/diario_boe/txt.php?id={id_boe}"
-    proxy = f"http://api.scraperapi.com?api_key={SCRAPER_KEY}&url={requests.utils.quote(url, safe='')}"
-    r = requests.get(proxy, timeout=30)
-    r.raise_for_status()
-    return r.text
+def descargar_html(id_boe, fuente, url_pdf):
+    if fuente == 'BOJA' and url_pdf and 'juntadeandalucia.es/boja/' in url_pdf:
+        try:
+            r = requests.get(url_pdf, timeout=20)
+            r.raise_for_status()
+            return r.text
+        except:
+            pass
+
+    if fuente == 'BOE':
+        url = f"https://www.boe.es/diario_boe/txt.php?id={id_boe}"
+        proxy = f"http://api.scraperapi.com?api_key={SCRAPER_KEY}&url={requests.utils.quote(url, safe='')}"
+        r = requests.get(proxy, timeout=30)
+        r.raise_for_status()
+        return r.text
+
+    return ""
 
 def main():
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    registros = client.table("subvenciones").select("id, id_boe, titulo, materia, fecha").execute()
-    print(f"Enriqueciendo {len(registros.data)} registros...")
+    registros = client.table("subvenciones").select("id, id_boe, titulo, materia, fecha, fuente, url_pdf, organismo").execute()
+    sin_enriquecer = [r for r in registros.data if not r.get("organismo")]
+    print(f"Enriqueciendo {len(sin_enriquecer)} registros...")
 
-    for r in registros.data:
+    for r in sin_enriquecer:
         try:
             texto_base = f"{r['titulo']} {r['materia'] or ''}".lower()
             fecha_pub = r.get("fecha") or ""
+            fuente = r.get("fuente") or "BOE"
 
             datos = {
                 "organismo":           r.get("materia") or "Administración General del Estado",
@@ -217,7 +230,7 @@ def main():
                 "ccaa":                detectar_ccaa(texto_base),
                 "ods":                 detectar_ods(texto_base),
                 "descripcion":         r["titulo"][:200],
-                "importe":             "Ver PDF para más información",
+                "importe":             "Ver convocatoria para más información",
                 "fecha_inicio":        fecha_pub,
                 "fecha_fin_solicitud": None,
                 "fecha_fin_ejecucion": None,
@@ -225,17 +238,18 @@ def main():
             }
 
             try:
-                html = descargar_html(r["id_boe"])
-                bdns, f_ini, f_fin, f_ejec = extraer_fechas(html, fecha_pub)
-                importe = extraer_importe(html)
-                datos.update({
-                    "bdns_id":             bdns,
-                    "fecha_inicio":        f_ini or fecha_pub,
-                    "fecha_fin_solicitud": f_fin,
-                    "fecha_fin_ejecucion": f_ejec,
-                    "importe":             importe,
-                })
-                print(f"✓ {r['id_boe']} — fin: {f_fin} ejec: {f_ejec}")
+                html = descargar_html(r["id_boe"], fuente, r.get("url_pdf"))
+                if html:
+                    bdns, f_ini, f_fin, f_ejec = extraer_fechas(html, fecha_pub)
+                    importe = extraer_importe(html)
+                    datos.update({
+                        "bdns_id":             bdns,
+                        "fecha_inicio":        f_ini or fecha_pub,
+                        "fecha_fin_solicitud": f_fin,
+                        "fecha_fin_ejecucion": f_ejec,
+                        "importe":             importe,
+                    })
+                    print(f"✓ {r['id_boe']} ({fuente}) — fin: {f_fin} ejec: {f_ejec}")
             except Exception as e:
                 print(f"  Sin HTML para {r['id_boe']}: {e}")
 
