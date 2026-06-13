@@ -9,45 +9,32 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 def descargar_boe(fecha):
-    # API oficial del BOE
-    url = f"https://boe.es/datosabiertos/api/boletines/diarios/{fecha[:4]}/{fecha[4:6]}/{fecha[6:]}"
+    url = f"https://www.boe.es/datosabiertos/api/boe/sumario/{fecha}"
     print(f"Descargando BOE del {fecha}...")
     r = requests.get(url, timeout=60)
     r.raise_for_status()
-    return r.json()
+    return r.content
 
-def extraer_subvenciones(datos, fecha):
+def extraer_subvenciones(xml_bytes, fecha):
+    parser = etree.XMLParser(recover=True)
+    root = etree.fromstring(xml_bytes, parser=parser)
     encontradas = []
-    items = datos.get("data", {}).get("sumario", {}).get("diario", {}).get("seccion", [])
-    if not isinstance(items, list):
-        items = [items]
-    for seccion in items:
-        departamentos = seccion.get("departamento", [])
-        if not isinstance(departamentos, list):
-            departamentos = [departamentos]
-        for dep in departamentos:
-            epigrafe = dep.get("epigrafe", [])
-            if not isinstance(epigrafe, list):
-                epigrafe = [epigrafe]
-            for ep in epigrafe:
-                items_ep = ep.get("item", [])
-                if not isinstance(items_ep, list):
-                    items_ep = [items_ep]
-                for item in items_ep:
-                    titulo  = item.get("titulo", "")
-                    id_boe  = item.get("id", "")
-                    url_pdf = item.get("url_pdf", "")
-                    materia = ep.get("nombre", "")
-                    if not id_boe:
-                        continue
-                    if es_relevante(titulo, materia):
-                        encontradas.append({
-                            "id_boe":  id_boe,
-                            "titulo":  titulo,
-                            "fecha":   fecha,
-                            "url_pdf": f"https://www.boe.es{url_pdf}" if url_pdf else None,
-                            "materia": materia,
-                        })
+    for item in root.findall(".//item"):
+        titulo  = item.findtext("titulo",        default="")
+        id_boe  = item.findtext("identificador", default="")
+        url_pdf = item.findtext("url_pdf",       default="")
+        epigrafe = item.getparent()
+        materia  = epigrafe.get("nombre", "") if epigrafe is not None else ""
+        if not id_boe:
+            continue
+        if es_relevante(titulo, materia):
+            encontradas.append({
+                "id_boe":  id_boe,
+                "titulo":  titulo,
+                "fecha":   fecha,
+                "url_pdf": url_pdf if url_pdf else None,
+                "materia": materia,
+            })
     return encontradas
 
 def guardar(subvenciones):
@@ -63,8 +50,8 @@ def guardar(subvenciones):
     print(f"Guardadas {len(result.data)} convocatorias.")
 
 if __name__ == "__main__":
-    hoy = "20260612"
-    datos = descargar_boe(hoy)
-    items = extraer_subvenciones(datos, hoy)
+    hoy = "20260609"
+    xml   = descargar_boe(hoy)
+    items = extraer_subvenciones(xml, hoy)
     print(f"Encontradas {len(items)} convocatorias relevantes.")
     guardar(items)
