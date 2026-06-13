@@ -112,8 +112,8 @@ def extraer_importe(html):
         r'importe[^.]*?([\d.,]+)\s*euros',
         r'dotaci[oó]n[^.]*?([\d.,]+)\s*euros',
         r'cuant[íi]a[^.]*?([\d.,]+)\s*euros',
+        r'presupuesto[^.]*?([\d.,]+)\s*euros',
         r'([\d.,]+)\s*euros',
-        r'presupuesto[^.]*?([\d.,]+)',
     ]
     texto = html.lower()
     for p in patrones:
@@ -123,10 +123,10 @@ def extraer_importe(html):
             try:
                 valor = float(importe)
                 if valor > 100:
-                    return f"{valor:,.0f} €".replace(',', '.')
+                    return f"Dotación total: {valor:,.0f} € (ver PDF para máximo por entidad)".replace(',', '.')
             except:
                 pass
-    return "No especificado"
+    return "Ver PDF para más información"
 
 def descargar_html(id_boe):
     url_html = f"https://www.boe.es/diario_boe/txt.php?id={id_boe}"
@@ -154,7 +154,7 @@ def main():
                 "ccaa":         detectar_ccaa(texto_base),
                 "ods":          detectar_ods(texto_base),
                 "descripcion":  r["titulo"][:200],
-                "importe":      "No especificado",
+                "importe":      "Ver PDF para más información",
                 "fecha_cierre": None,
             }
 
@@ -164,8 +164,7 @@ def main():
                 importe = extraer_importe(html)
                 if fecha:
                     datos["fecha_cierre"] = fecha
-                if importe:
-                    datos["importe"] = importe
+                datos["importe"] = importe
                 print(f"✓ {r['id_boe']} — fecha: {fecha or 'no encontrada'} — importe: {importe}")
             except Exception as e:
                 print(f"  HTML no disponible para {r['id_boe']}: {e}")
