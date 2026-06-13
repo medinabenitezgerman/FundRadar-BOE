@@ -16,7 +16,8 @@ def descargar_boe(fecha):
     return r.content
 
 def extraer_subvenciones(xml_bytes, fecha):
-    root = etree.fromstring(xml_bytes)
+    parser = etree.XMLParser(recover=True)
+    root = etree.fromstring(xml_bytes, parser=parser)
     encontradas = []
     for item in root.findall(".//item"):
         titulo  = item.findtext("titulo",        default="")
