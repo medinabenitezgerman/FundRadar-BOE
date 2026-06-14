@@ -67,6 +67,21 @@ KEYWORDS_EXCLUIR = [
     "corrección de errores",
     "corrección de errata",
     "corrección de error",
+    "sindicato",
+    "sindicatos",
+    "organizaciones sindicales",
+    "representación sindical",
+    "acción sindical",
+    "federación sindical",
+    "confederación sindical",
+    "formación profesional para el empleo",
+    "compromiso de contratación",
+    "personas trabajadoras desempleadas",
+    "programas formativos",
+    "acción concertada",
+    "prórroga",
+    "prorroga",
+    "autorización para la prestación",
 ]
 
 def es_relevante(titulo: str, materia: str, seccion: str = "") -> bool:
