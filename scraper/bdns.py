@@ -17,7 +17,8 @@ KEYWORDS_EXCLUIR = [
     "modificación", "nombramiento", "cese", "oposición",
     "licitación", "contrato", "adjudicación",
     "becas de formación", "máster", "investigador",
-    "autónomo", "personas físicas", "ciudadanos",
+    "autónomo", "autónomos", "personas físicas", "persona física",
+    "ciudadanos", "estudiantes", "becas",
     "corrección de errores", "corrección de errata",
     "sindicato", "sindicatos", "organizaciones sindicales",
     "formación profesional para el empleo",
@@ -28,15 +29,12 @@ KEYWORDS_EXCLUIR = [
     "relación de subvenciones concedidas",
     "subvenciones concedidas",
     "se hace pública la relación",
+    "empresas", "pymes", "emprendedores",
+    "agricultores", "ganaderos", "pescadores",
+    "cheque", "bono", "voucher", "ticket",
+    "actividades deportivas", "deporte de base",
+    "nomina", "nómina",
 ]
-
-NIVEL1_A_CCAA = {
-    "AUTONOMICA": None,
-    "ESTATAL": "Nacional",
-    "LOCAL": None,
-    "OTROS": None,
-    "UE": "Nacional",
-}
 
 def es_relevante(titulo):
     t = titulo.lower()
@@ -50,7 +48,7 @@ def main():
     print("Instalando bdns-fetch...")
     subprocess.run(["pip", "install", "bdns-fetch", "--break-system-packages", "-q"], check=True)
 
-    print("Descargando últimas convocatorias BDNS...")
+    print("Descargando ultimas convocatorias BDNS...")
     result = subprocess.run(
         ["bdns-fetch", "--output-file", "/tmp/bdns_convocatorias.jsonl", "convocatorias-ultimas"],
         capture_output=True, text=True
@@ -67,7 +65,7 @@ def main():
                 if line:
                     convocatorias.append(json.loads(line))
     except FileNotFoundError:
-        print("No se generó el archivo.")
+        print("No se genero el archivo.")
         return
 
     print(f"Total descargadas: {len(convocatorias)}")
@@ -83,7 +81,15 @@ def main():
         fecha = str(c.get("fechaRecepcion", hoy.strftime("%Y-%m-%d")))[:10]
         organismo = c.get("nivel2", c.get("nivel1", ""))
         nivel1 = c.get("nivel1", "")
-        ccaa = NIVEL1_A_CCAA.get(nivel1, nivel1)
+        if nivel1 == "ESTATAL":
+            ccaa = "Nacional"
+        elif nivel1 == "AUTONOMICA":
+            ccaa = c.get("nivel2", "Autonomica")
+        elif nivel1 == "LOCAL":
+            ccaa = c.get("nivel3", c.get("nivel2", "Local"))
+        else:
+            ccaa = nivel1 or "Nacional"
+
         url_pdf = f"https://www.infosubvenciones.es/bdnstrans/GE/es/convocatoria/{bdns_id}"
 
         items.append({
@@ -100,7 +106,7 @@ def main():
     print(f"Convocatorias relevantes: {len(items)}")
 
     if not items:
-        print("Ninguna pasó el filtro.")
+        print("Ninguna paso el filtro.")
         return
 
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -109,21 +115,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-"actividades deportivas",
-    "deporte de base",
-    "cheque",
-    "bono",
-    "voucher",
-    "ticket",
-    "empresas",
-    "pymes",
-    "autónomos",
-    "emprendedores",
-    "agricultores",
-    "ganaderos",
-    "pescadores",
-    "personas físicas",
-    "persona física",
-    "estudiantes",
-    "becas",
-    "investigadores",
