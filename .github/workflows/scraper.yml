@@ -28,6 +28,12 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python scraper/boja.py
 
+      - name: Ejecutar scraper BDNS
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python scraper/bdns.py
+
       - name: Enriquecer convocatorias
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
