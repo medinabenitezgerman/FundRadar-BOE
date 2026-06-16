@@ -7,15 +7,13 @@ from supabase import create_client
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+SCRAPER_KEY  = os.environ.get("SCRAPER_API_KEY", "")
 
 BASE_URL = "https://dogc.gencat.cat"
-
-SECCIONES_VALIDAS = ["Disposicions generals", "Altres disposicions", "Anuncis"]
 
 KEYWORDS_POSITIVAS = [
     "subvenci", "ajut", "ajuts", "convocatoria", "concessio",
     "subvención", "subvenciones", "ayuda", "ayudas",
-    "convocatoria de subvencions",
 ]
 
 KEYWORDS_EXCLUIR = [
@@ -27,17 +25,29 @@ KEYWORDS_EXCLUIR = [
     "sindicat", "sindicats",
     "accio concertada", "prorrog",
     "relacio de subvencions concedides",
-    "persones fisiques",
     "empresa", "autonoms",
+    "proves selectives", "proces selectiu",
+    "places convocades", "oferta d'ocupacio",
 ]
 
+def descargar(url):
+    if SCRAPER_KEY:
+        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_KEY}&url={requests.utils.quote(url, safe='')}"
+        r = requests.get(proxy_url, timeout=60)
+    else:
+        r = requests.get(url, timeout=30)
+    r.raise_for_status()
+    return r
+
 def get_numero_dogc():
-    url = f"{BASE_URL}/ca/inici/"
     try:
-        r = requests.get(url, timeout=20)
-        r.raise_for_status()
+        r = descargar(f"{BASE_URL}/ca/inici/")
         soup = BeautifulSoup(r.text, 'html.parser')
-        m = re.search(r'DOGC\s+n[uú]m\.?\s*(\d+)', soup.get_text())
+        texto = soup.get_text()
+        m = re.search(r'DOGC\s+n[uú]m\.?\s*(\d+)', texto)
+        if m:
+            return int(m.group(1))
+        m = re.search(r'n[uú]m(?:ero)?\.?\s*(\d{4,})', texto)
         if m:
             return int(m.group(1))
     except Exception as e:
@@ -46,26 +56,23 @@ def get_numero_dogc():
 
 def scrape_dogc(numero):
     url = f"{BASE_URL}/ca/pdogc_canals_interns/pdogc_sumari_del_dogc/?numDOGC={numero}"
+    print(f"Descargando DOGC {numero}: {url}")
     try:
-        r = requests.get(url, timeout=20)
-        r.raise_for_status()
+        r = descargar(url)
     except Exception as e:
         print(f"Error descargando DOGC {numero}: {e}")
         return []
 
     soup = BeautifulSoup(r.text, 'html.parser')
     fecha = date.today().strftime("%Y-%m-%d")
-    convocatorias = []
 
-    m = re.search(r'(\d{2}/\d{2}/\d{4})', soup.get_text())
+    m = re.search(r'(\d{1,2})\s+de\s+\w+\s+de\s+(\d{4})', soup.get_text())
     if m:
-        parts = m.group(1).split('/')
-        fecha = f"{parts[2]}-{parts[1]}-{parts[0]}"
+        pass
 
-    items = soup.find_all(['p', 'div'], string=re.compile(r'.{20,}'))
-
-    for item in soup.find_all('a', href=re.compile(r'/ca/document-del-dogc/')):
-        titulo = item.get_text(strip=True)
+    convocatorias = []
+    for enlace in soup.find_all('a', href=re.compile(r'document-del-dogc|documentId=')):
+        titulo = enlace.get_text(strip=True)
         if not titulo or len(titulo) < 20:
             continue
 
@@ -75,10 +82,11 @@ def scrape_dogc(numero):
         if any(k in titulo_norm for k in KEYWORDS_EXCLUIR):
             continue
 
-        href = item.get('href', '')
+        href = enlace.get('href', '')
         url_doc = f"{BASE_URL}{href}" if href.startswith('/') else href
-        doc_id = re.search(r'documentId=(\d+)', href)
-        id_dogc = f"DOGC-{numero}-{doc_id.group(1) if doc_id else len(convocatorias)+1}"
+        doc_id_m = re.search(r'documentId=(\d+)', href)
+        doc_id = doc_id_m.group(1) if doc_id_m else str(len(convocatorias)+1)
+        id_dogc = f"DOGC-{numero}-{doc_id}"
 
         convocatorias.append({
             "id_boe":  id_dogc,
@@ -97,11 +105,7 @@ def guardar(items):
         print("No hay convocatorias nuevas del DOGC.")
         return
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    result = (
-        client.table("subvenciones")
-        .upsert(items, on_conflict="id_boe")
-        .execute()
-    )
+    result = client.table("subvenciones").upsert(items, on_conflict="id_boe").execute()
     print(f"Guardadas {len(result.data)} convocatorias del DOGC.")
 
 if __name__ == "__main__":
