@@ -1,7 +1,7 @@
 import os
 import json
 import subprocess
-from datetime import date, timedelta
+from datetime import date
 from supabase import create_client
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
@@ -30,6 +30,14 @@ KEYWORDS_EXCLUIR = [
     "se hace pública la relación",
 ]
 
+NIVEL1_A_CCAA = {
+    "AUTONOMICA": None,
+    "ESTATAL": "Nacional",
+    "LOCAL": None,
+    "OTROS": None,
+    "UE": "Nacional",
+}
+
 def es_relevante(titulo):
     t = titulo.lower()
     if any(k in t for k in KEYWORDS_EXCLUIR):
@@ -42,17 +50,11 @@ def main():
     print("Instalando bdns-fetch...")
     subprocess.run(["pip", "install", "bdns-fetch", "--break-system-packages", "-q"], check=True)
 
-    print(f"Descargando últimas convocatorias BDNS...")
-
+    print("Descargando últimas convocatorias BDNS...")
     result = subprocess.run(
-        [
-            "bdns-fetch",
-            "--output-file", "/tmp/bdns_convocatorias.jsonl",
-            "convocatorias-ultimas"
-        ],
+        ["bdns-fetch", "--output-file", "/tmp/bdns_convocatorias.jsonl", "convocatorias-ultimas"],
         capture_output=True, text=True
     )
-    print(result.stdout)
     if result.returncode != 0:
         print(f"Error bdns-fetch: {result.stderr}")
         return
@@ -65,31 +67,23 @@ def main():
                 if line:
                     convocatorias.append(json.loads(line))
     except FileNotFoundError:
-        print("No se generó el archivo de convocatorias.")
+        print("No se generó el archivo.")
         return
 
     print(f"Total descargadas: {len(convocatorias)}")
-    if convocatorias:
-        print(f"Ejemplo campos: {list(convocatorias[0].keys())}")
-        print(f"Ejemplo dato: {convocatorias[0]}")
 
     items = []
     for c in convocatorias:
-        titulo = c.get("titulo", c.get("descripcion", ""))
+        titulo = c.get("descripcion", "")
         if not titulo or not es_relevante(titulo):
             continue
 
-        bdns_id = str(c.get("id", c.get("codigo", "")))
+        bdns_id = str(c.get("numeroConvocatoria", c.get("id", "")))
         id_boe = f"BDNS-{bdns_id}"
-        fecha = str(c.get("fechaRegistro", c.get("fecha", hoy.strftime("%Y-%m-%d"))))
-        if "/" in fecha:
-            p = fecha.split("/")
-            if len(p) == 3:
-                fecha = f"{p[2]}-{p[1].zfill(2)}-{p[0].zfill(2)}"
-        fecha = fecha[:10]
-
-        organismo = c.get("organo", c.get("organismo", c.get("departamento", "")))
-        ccaa = c.get("administracion", "Nacional")
+        fecha = str(c.get("fechaRecepcion", hoy.strftime("%Y-%m-%d")))[:10]
+        organismo = c.get("nivel2", c.get("nivel1", ""))
+        nivel1 = c.get("nivel1", "")
+        ccaa = NIVEL1_A_CCAA.get(nivel1, nivel1)
         url_pdf = f"https://www.infosubvenciones.es/bdnstrans/GE/es/convocatoria/{bdns_id}"
 
         items.append({
