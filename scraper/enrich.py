@@ -1,12 +1,11 @@
 import os
 import re
 import requests
-from datetime import date, timedelta, datetime
+from datetime import datetime, timedelta
 from supabase import create_client
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
-SCRAPER_KEY  = os.environ["SCRAPER_API_KEY"]
 
 MESES = {
     'enero':'01','febrero':'02','marzo':'03','abril':'04',
@@ -18,20 +17,20 @@ ODS_KEYWORDS = {
     "1":  ["pobreza", "exclusión social", "vulnerable"],
     "2":  ["alimentación", "hambre", "agricultura", "pesca"],
     "3":  ["salud", "sanitario", "adicciones", "drogas", "mental"],
-    "4":  ["educación", "formación", "escolar", "universitario", "becas"],
+    "4":  ["educación", "formación", "escolar", "universitario"],
     "5":  ["igualdad", "mujer", "género", "violencia de género"],
-    "6":  ["agua", "saneamiento", "hidráulico"],
+    "6":  ["agua", "saneamiento"],
     "7":  ["energía", "renovable", "solar", "eólico"],
     "8":  ["empleo", "trabajo", "inserción laboral", "economía social"],
-    "9":  ["innovación", "investigación", "tecnología", "digital"],
+    "9":  ["innovación", "investigación", "tecnología"],
     "10": ["desigualdad", "migrantes", "refugiados", "inclusión", "discapacidad"],
-    "11": ["vivienda", "urbanismo", "desarrollo urbano", "transporte"],
+    "11": ["vivienda", "urbanismo", "desarrollo urbano"],
     "12": ["consumo", "residuos", "reciclaje"],
     "13": ["clima", "medioambiente", "cambio climático"],
     "14": ["marino", "océano", "costas", "pesca marítima"],
     "15": ["biodiversidad", "bosques", "fauna", "flora", "rural"],
     "16": ["paz", "justicia", "derechos humanos", "cooperación", "democracia"],
-    "17": ["alianzas", "cooperación internacional", "desarrollo sostenible"],
+    "17": ["alianzas", "cooperación internacional"],
 }
 
 CCAA_KEYWORDS = {
@@ -40,15 +39,15 @@ CCAA_KEYWORDS = {
     "Cataluña": ["cataluña", "catalunya", "barcelona", "girona", "lleida", "tarragona"],
     "Valencia": ["valencia", "valenciana", "alicante", "castellón"],
     "Galicia": ["galicia", "coruña", "vigo", "pontevedra", "lugo", "ourense"],
-    "País Vasco": ["euskadi", "vasco", "bilbao", "donostia", "vitoria", "bizkaia", "gipuzkoa"],
-    "Castilla y León": ["castilla y león", "burgos", "salamanca", "valladolid", "zamora", "soria", "segovia", "ávila", "palencia", "león"],
+    "País Vasco": ["euskadi", "vasco", "bilbao", "donostia", "vitoria"],
+    "Castilla y León": ["castilla y león", "burgos", "salamanca", "valladolid"],
     "Aragón": ["aragón", "zaragoza", "huesca", "teruel"],
-    "Canarias": ["canarias", "tenerife", "palmas", "lanzarote"],
+    "Canarias": ["canarias", "tenerife", "palmas"],
     "Murcia": ["murcia"],
     "Navarra": ["navarra"],
     "Extremadura": ["extremadura", "badajoz", "cáceres"],
     "Asturias": ["asturias"],
-    "Baleares": ["baleares", "mallorca", "menorca", "ibiza"],
+    "Baleares": ["baleares", "mallorca"],
     "Cantabria": ["cantabria"],
     "La Rioja": ["rioja"],
     "Ceuta": ["ceuta"],
@@ -57,7 +56,7 @@ CCAA_KEYWORDS = {
 
 AMBITO_KEYWORDS = {
     "Social": ["social", "inclusión", "discapacidad", "mayores", "infancia", "juventud", "dependencia", "pobreza"],
-    "Educación": ["educación", "formación", "escolar", "universitario", "becas", "enseñanza"],
+    "Educación": ["educación", "formación", "escolar", "universitario", "enseñanza"],
     "Cultura": ["cultura", "cultural", "patrimonio", "arte", "cine", "audiovisual"],
     "Cooperación internacional": ["cooperación internacional", "humanitaria", "desarrollo", "aecid"],
     "Medioambiente": ["medioambiente", "medio ambiente", "clima", "biodiversidad", "rural"],
@@ -89,10 +88,6 @@ def detectar_ambito(texto):
 
 def fecha_a_iso(texto):
     texto = texto.strip().lower()
-    if '/' in texto:
-        partes = texto.split('/')
-        if len(partes) == 3:
-            return f"{partes[2].strip()}-{partes[1].strip().zfill(2)}-{partes[0].strip().zfill(2)}"
     partes = texto.split()
     if len(partes) >= 5 and partes[1] == 'de' and partes[3] == 'de':
         mes = MESES.get(partes[2])
@@ -100,13 +95,11 @@ def fecha_a_iso(texto):
             return f"{partes[4]}-{mes}-{partes[0].zfill(2)}"
     return None
 
-def fecha_valida(fecha_iso, fecha_publicacion):
-    if not fecha_iso or not fecha_publicacion:
+def fecha_valida(fecha_iso, fecha_pub):
+    if not fecha_iso or not fecha_pub:
         return False
     try:
-        f = datetime.strptime(fecha_iso, "%Y-%m-%d")
-        p = datetime.strptime(fecha_publicacion, "%Y-%m-%d")
-        return f >= p
+        return datetime.strptime(fecha_iso, "%Y-%m-%d") >= datetime.strptime(fecha_pub, "%Y-%m-%d")
     except:
         return False
 
@@ -122,99 +115,81 @@ def calcular_dias_habiles(fecha_pub, dias):
     except:
         return None
 
-def extraer_fechas(html, fecha_publicacion):
-    texto = html.lower()
-    bdns_id = None
-    fecha_inicio = fecha_publicacion
-    fecha_fin_solicitud = None
-    fecha_fin_ejecucion = None
+def extraer_datos_bdns(bdns_id, fecha_pub):
+    url = f"https://www.infosubvenciones.es/bdnstrans/GE/es/convocatoria/{bdns_id}"
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        html = r.text
+    except:
+        return None, None, None, None
 
-    m = re.search(r'bdns\s*\(?identif\.?\)?\s*:?\s*(\d+)', texto)
+    texto = html.lower()
+    fecha_fin = None
+    fecha_ejec = None
+    importe = None
+    organismo = None
+
+    m = re.search(r'órgano[^<]*</th>\s*<td[^>]*>([^<]+)</td>', texto)
     if m:
-        bdns_id = m.group(1)
+        organismo = m.group(1).strip()
+
+    patrones_importe = [
+        r'importe[^<]*?(\d[\d.,]+)\s*euros',
+        r'dotaci[oó]n[^<]*?(\d[\d.,]+)\s*euros',
+        r'cuant[íi]a[^<]*?(\d[\d.,]+)\s*euros',
+        r'(\d[\d.,]+)\s*euros',
+    ]
+    for p in patrones_importe:
+        m = re.search(p, texto)
+        if m:
+            try:
+                valor = float(m.group(1).replace('.', '').replace(',', '.'))
+                if valor > 100:
+                    importe = f"Dotación total: {valor:,.0f} €".replace(',', '.')
+                    break
+            except:
+                pass
 
     patrones_fin = [
         r'hasta el\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
         r'fecha l[íi]mite[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
         r'plazo[^.]*?finaliza[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
-        r'terminar[áa]\s+el\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
     ]
     for p in patrones_fin:
         m = re.search(p, texto)
         if m:
             f = fecha_a_iso(m.group(1))
-            if fecha_valida(f, fecha_publicacion):
-                fecha_fin_solicitud = f
+            if fecha_valida(f, fecha_pub):
+                fecha_fin = f
                 break
 
-    if not fecha_fin_solicitud:
+    if not fecha_fin:
         m = re.search(r'(\d+)\s+d[íi]as?\s+h[áa]biles?\s+(?:a partir|contados?|desde)', texto)
-        if not m:
-            m = re.search(r'plazo\s+de\s+(\d+)\s+d[íi]as?\s+h[áa]biles?', texto)
         if m:
-            dias = int(m.group(1))
-            fecha_fin_solicitud = calcular_dias_habiles(fecha_publicacion, dias)
+            fecha_fin = calcular_dias_habiles(fecha_pub, int(m.group(1)))
 
-    patrones_ejecucion = [
-        r'ejecuci[oó]n[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+    patrones_ejec = [
         r'31\s+de\s+diciembre\s+de\s+(\d{4})',
-        r'hasta el\s+31\s+de\s+diciembre\s+de\s+(\d{4})',
-        r'justificaci[oó]n[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
+        r'ejecuci[oó]n[^.]*?(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})',
     ]
-    for p in patrones_ejecucion:
+    for p in patrones_ejec:
         m = re.search(p, texto)
         if m:
             g = m.group(1)
-            if len(g) == 4:
-                f = f"{g}-12-31"
-            else:
-                f = fecha_a_iso(g)
-            if fecha_valida(f, fecha_publicacion):
-                fecha_fin_ejecucion = f
+            f = f"{g}-12-31" if len(g) == 4 else fecha_a_iso(g)
+            if fecha_valida(f, fecha_pub):
+                fecha_ejec = f
                 break
 
-    return bdns_id, fecha_inicio, fecha_fin_solicitud, fecha_fin_ejecucion
-
-def extraer_importe(html):
-    patrones = [
-        r'importe[^.]*?([\d.,]+)\s*euros',
-        r'dotaci[oó]n[^.]*?([\d.,]+)\s*euros',
-        r'cuant[íi]a[^.]*?([\d.,]+)\s*euros',
-        r'presupuesto[^.]*?([\d.,]+)\s*euros',
-        r'([\d.,]+)\s*euros',
-    ]
-    for p in patrones:
-        m = re.search(p, html.lower())
-        if m:
-            try:
-                valor = float(m.group(1).replace('.', '').replace(',', '.'))
-                if valor > 100:
-                    return f"Dotación total: {valor:,.0f} €".replace(',', '.')
-            except:
-                pass
-    return "Ver convocatoria para más información"
-
-def descargar_html(id_boe, fuente, url_pdf):
-    if fuente == 'BOJA' and url_pdf and 'juntadeandalucia.es/boja/' in url_pdf:
-        try:
-            r = requests.get(url_pdf, timeout=20)
-            r.raise_for_status()
-            return r.text
-        except:
-            pass
-
-    if fuente == 'BOE':
-        url = f"https://www.boe.es/diario_boe/txt.php?id={id_boe}"
-        proxy = f"http://api.scraperapi.com?api_key={SCRAPER_KEY}&url={requests.utils.quote(url, safe='')}"
-        r = requests.get(proxy, timeout=30)
-        r.raise_for_status()
-        return r.text
-
-    return ""
+    return organismo, importe, fecha_fin, fecha_ejec
 
 def main():
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    registros = client.table("subvenciones").select("id, id_boe, titulo, materia, fecha, fuente, url_pdf, organismo").execute()
+    registros = client.table("subvenciones").select(
+        "id, id_boe, titulo, materia, fecha, fuente, url_pdf, bdns_id, organismo, ccaa"
+    ).execute()
+
     sin_enriquecer = [r for r in registros.data if not r.get("organismo")]
     print(f"Enriqueciendo {len(sin_enriquecer)} registros...")
 
@@ -222,36 +197,31 @@ def main():
         try:
             texto_base = f"{r['titulo']} {r['materia'] or ''}".lower()
             fecha_pub = r.get("fecha") or ""
-            fuente = r.get("fuente") or "BOE"
 
             datos = {
-                "organismo":           r.get("materia") or "Administración General del Estado",
+                "organismo":           r.get("materia") or "—",
                 "ambito":              detectar_ambito(texto_base),
-                "ccaa":                detectar_ccaa(texto_base),
+                "ccaa":                r.get("ccaa") or detectar_ccaa(texto_base),
                 "ods":                 detectar_ods(texto_base),
                 "descripcion":         r["titulo"][:200],
                 "importe":             "Ver convocatoria para más información",
                 "fecha_inicio":        fecha_pub,
                 "fecha_fin_solicitud": None,
                 "fecha_fin_ejecucion": None,
-                "bdns_id":             None,
             }
 
-            try:
-                html = descargar_html(r["id_boe"], fuente, r.get("url_pdf"))
-                if html:
-                    bdns, f_ini, f_fin, f_ejec = extraer_fechas(html, fecha_pub)
-                    importe = extraer_importe(html)
-                    datos.update({
-                        "bdns_id":             bdns,
-                        "fecha_inicio":        f_ini or fecha_pub,
-                        "fecha_fin_solicitud": f_fin,
-                        "fecha_fin_ejecucion": f_ejec,
-                        "importe":             importe,
-                    })
-                    print(f"✓ {r['id_boe']} ({fuente}) — fin: {f_fin} ejec: {f_ejec}")
-            except Exception as e:
-                print(f"  Sin HTML para {r['id_boe']}: {e}")
+            bdns_id = r.get("bdns_id")
+            if bdns_id:
+                organismo, importe, f_fin, f_ejec = extraer_datos_bdns(bdns_id, fecha_pub)
+                if organismo:
+                    datos["organismo"] = organismo
+                if importe:
+                    datos["importe"] = importe
+                if f_fin:
+                    datos["fecha_fin_solicitud"] = f_fin
+                if f_ejec:
+                    datos["fecha_fin_ejecucion"] = f_ejec
+                print(f"✓ {r['id_boe']} — fin: {f_fin} ejec: {f_ejec}")
 
             client.table("subvenciones").update(datos).eq("id", r["id"]).execute()
 
