@@ -7,57 +7,79 @@ from supabase import create_client
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+SCRAPER_KEY  = os.environ.get("SCRAPER_API_KEY", "")
 
 BASE_URL = "https://www.bocm.es"
 
 KEYWORDS_POSITIVAS = [
-    "subvención", "subvenciones", "ayuda", "ayudas",
+    "subvenci", "ayuda", "ayudas",
     "convocatoria de subvenciones", "convocatoria de ayudas",
-    "concesión de subvenciones", "concesión de ayudas",
+    "concesi",
 ]
 
 KEYWORDS_EXCLUIR = [
-    "modificación", "nombramiento", "cese", "oposición",
-    "licitación", "contrato", "adjudicación",
-    "becas de formación", "máster", "investigador",
-    "autónomo", "autónomos", "personas físicas", "persona física",
+    "modificaci", "nombramiento", "cese", "oposici",
+    "licitaci", "contrato", "adjudicaci",
+    "becas de formaci", "master", "investigador",
+    "autonomo", "personas fisicas", "persona fisica",
     "ciudadanos", "estudiantes",
-    "corrección de errores", "corrección de errata",
+    "correccion de errores", "correccion de errata",
     "sindicato", "sindicatos",
-    "formación profesional para el empleo",
-    "compromiso de contratación",
+    "formacion profesional para el empleo",
+    "compromiso de contratacion",
     "personas trabajadoras desempleadas",
-    "acción concertada", "prórroga", "prorroga",
-    "relación de subvenciones concedidas",
+    "accion concertada", "prorrog",
+    "relacion de subvenciones concedidas",
     "subvenciones concedidas",
-    "se acuerda modificar",
     "empresas", "pymes", "emprendedores",
     "agricultores", "ganaderos",
     "pruebas selectivas", "proceso selectivo",
     "plazas convocadas", "oferta de empleo",
 ]
 
-def get_bocm_url():
+def descargar(url):
+    if SCRAPER_KEY:
+        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_KEY}&url={requests.utils.quote(url, safe='')}"
+        r = requests.get(proxy_url, timeout=60)
+    else:
+        r = requests.get(url, timeout=30)
+    r.raise_for_status()
+    return r
+
+def get_bocm_info():
     hoy = date.today()
     fecha_str = hoy.strftime("%Y%m%d")
-    url_main = f"{BASE_URL}/boletin/bocm-{fecha_str.lower()}-"
     try:
-        r = requests.get(f"{BASE_URL}/ultimo-bocm", timeout=20)
-        r.raise_for_status()
+        r = descargar(f"{BASE_URL}/ultimo-bocm")
         m = re.search(r'bocm-(\d{8})-(\d+)', r.url + r.text.lower())
         if m:
-            fecha = m.group(1)
-            numero = m.group(2)
-            xml_url = f"{BASE_URL}/boletin/CM_Boletin_BOCM/{fecha[:4]}/{fecha[4:6]}/{fecha[6:8]}/BOCM-{fecha}{numero}.xml"
-            return xml_url, hoy.strftime("%Y-%m-%d"), numero
+            return m.group(1), m.group(2), hoy.strftime("%Y-%m-%d")
     except Exception as e:
-        print(f"Error obteniendo BOCM: {e}")
-    return None, None, None
+        print(f"Error obteniendo info BOCM: {e}")
+    return fecha_str, None, hoy.strftime("%Y-%m-%d")
 
-def scrape_bocm_xml(xml_url, fecha, numero):
+def get_numero_bocm(fecha_str, fecha_iso):
     try:
-        r = requests.get(xml_url, timeout=30)
-        r.raise_for_status()
+        r = descargar(f"{BASE_URL}/boletin/bocm-{fecha_str.lower()}-141")
+        m = re.search(r'bocm-\d{8}-(\d+)', r.url)
+        if m:
+            return m.group(1)
+    except:
+        pass
+    try:
+        r = descargar(f"{BASE_URL}/ultimo-bocm")
+        m = re.search(r'bocm-\d{8}-(\d+)', r.text.lower())
+        if m:
+            return m.group(1)
+    except:
+        pass
+    return None
+
+def scrape_bocm(fecha_str, numero, fecha_iso):
+    xml_url = f"{BASE_URL}/boletin/CM_Boletin_BOCM/{fecha_str[:4]}/{fecha_str[4:6]}/{fecha_str[6:8]}/BOCM-{fecha_str}{numero}.xml"
+    print(f"Descargando XML BOCM: {xml_url}")
+    try:
+        r = descargar(xml_url)
     except Exception as e:
         print(f"Error descargando XML BOCM: {e}")
         return []
@@ -70,24 +92,24 @@ def scrape_bocm_xml(xml_url, fecha, numero):
 
     convocatorias = []
     for elem in root.iter():
-        titulo = elem.text or ""
+        titulo = (elem.text or "").strip()
         if not titulo or len(titulo) < 20:
             continue
 
-        titulo_lower = titulo.lower()
-        if not any(k in titulo_lower for k in KEYWORDS_POSITIVAS):
+        titulo_norm = titulo.lower().encode('ascii', 'ignore').decode()
+        if not any(k in titulo_norm for k in KEYWORDS_POSITIVAS):
             continue
-        if any(k in titulo_lower for k in KEYWORDS_EXCLUIR):
+        if any(k in titulo_norm for k in KEYWORDS_EXCLUIR):
             continue
 
-        cve = elem.get('cve', elem.get('id', f"BOCM-{fecha.replace('-','')}-{len(convocatorias)+1}"))
-        id_bocm = f"BOCM-{cve}" if not cve.startswith('BOCM') else cve
+        cve = elem.get('cve', elem.get('id', ''))
+        id_bocm = f"BOCM-{fecha_str}-{cve or len(convocatorias)+1}"
         url_doc = f"{BASE_URL}/boletin-completo/{cve}" if cve else xml_url
 
         convocatorias.append({
             "id_boe":  id_bocm,
             "titulo":  titulo[:500],
-            "fecha":   fecha,
+            "fecha":   fecha_iso,
             "url_pdf": url_doc,
             "materia": "BOCM",
             "fuente":  "BOCM",
@@ -101,23 +123,20 @@ def guardar(items):
         print("No hay convocatorias nuevas del BOCM.")
         return
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    result = (
-        client.table("subvenciones")
-        .upsert(items, on_conflict="id_boe")
-        .execute()
-    )
+    result = client.table("subvenciones").upsert(items, on_conflict="id_boe").execute()
     print(f"Guardadas {len(result.data)} convocatorias del BOCM.")
 
 if __name__ == "__main__":
-    xml_url, fecha, numero = get_bocm_url()
-    if not xml_url:
-        fecha = date.today().strftime("%Y-%m-%d")
-        fecha_str = fecha.replace("-", "")
-        xml_url = f"{BASE_URL}/boletin/CM_Boletin_BOCM/{fecha[:4]}/{fecha[5:7]}/{fecha[8:10]}/BOCM-{fecha_str}141.xml"
-        numero = "141"
-        print(f"Usando URL directa: {xml_url}")
-
-    print(f"Scrapeando BOCM {numero} de {fecha}...")
-    items = scrape_bocm_xml(xml_url, fecha, numero)
-    print(f"BOCM: {len(items)} convocatorias relevantes.")
-    guardar(items)
+    hoy = date.today()
+    fecha_str = hoy.strftime("%Y%m%d")
+    fecha_iso = hoy.strftime("%Y-%m-%d")
+    fecha_str2, numero, _ = get_bocm_info()
+    if not numero:
+        numero = get_numero_bocm(fecha_str, fecha_iso)
+    if not numero:
+        print("No se pudo determinar el número del BOCM.")
+    else:
+        print(f"Scrapeando BOCM {numero} de {fecha_iso}...")
+        items = scrape_bocm(fecha_str, numero, fecha_iso)
+        print(f"BOCM: {len(items)} convocatorias.")
+        guardar(items)
