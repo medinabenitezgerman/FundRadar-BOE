@@ -109,3 +109,21 @@ def main():
 
 if __name__ == "__main__":
     main()
+"actividades deportivas",
+    "deporte de base",
+    "cheque",
+    "bono",
+    "voucher",
+    "ticket",
+    "empresas",
+    "pymes",
+    "autónomos",
+    "emprendedores",
+    "agricultores",
+    "ganaderos",
+    "pescadores",
+    "personas físicas",
+    "persona física",
+    "estudiantes",
+    "becas",
+    "investigadores",
