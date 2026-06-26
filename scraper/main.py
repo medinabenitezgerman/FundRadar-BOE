@@ -7,13 +7,16 @@ from filter import es_relevante
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
-SCRAPER_KEY  = os.environ["SCRAPER_API_KEY"]
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/xml, text/xml, */*",
+}
 
 def descargar_boe(fecha):
-    url_boe = f"https://www.boe.es/datosabiertos/api/boe/sumario/{fecha}"
-    url = f"http://api.scraperapi.com?api_key={SCRAPER_KEY}&url={requests.utils.quote(url_boe, safe='')}"
+    url = f"https://www.boe.es/datosabiertos/api/boe/sumario/{fecha}"
     print(f"Descargando BOE del {fecha}...")
-    r = requests.get(url, timeout=60)
+    r = requests.get(url, headers=HEADERS, timeout=60)
     r.raise_for_status()
     return r.content
 
@@ -55,7 +58,7 @@ def guardar(subvenciones):
     print(f"Guardadas {len(result.data)} convocatorias del BOE.")
 
 if __name__ == "__main__":
-    hoy = date.today().strftime("%Y%m%d")
+    hoy       = date.today().strftime("%Y%m%d")
     fecha_iso = date.today().strftime("%Y-%m-%d")
     try:
         xml   = descargar_boe(hoy)
