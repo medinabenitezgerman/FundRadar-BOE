@@ -1,4 +1,4 @@
-SECCIONES_VALIDAS = ["5B"]
+SECCIONES_VALIDAS = ["3", "5B"]
 
 KEYWORDS_POSITIVAS = [
     "subvención", "subvenciones",
